@@ -17,17 +17,21 @@ internal sealed class WorkerSystemLogFormatter
     internal const string Source = "Worker.LanguageWorker";
     internal const int MaximumDetailsLength = 10_000;
 
+    public string Format(RpcLog rpcLog, DateTimeOffset receiptTimestamp)
+    {
+        return Format(WorkerSystemLog.FromRpcLog(rpcLog, receiptTimestamp));
+    }
+
     /// <summary>
     /// Formats a worker system log for platform ingestion.
     /// </summary>
-    /// <param name="rpcLog">The worker log to format.</param>
-    /// <param name="receiptTimestamp">The time Worker Proxy received the log.</param>
+    /// <param name="log">The normalized worker system log to format.</param>
     /// <returns>The complete single-line ingestion record.</returns>
-    public string Format(RpcLog rpcLog, DateTimeOffset receiptTimestamp)
+    public string Format(WorkerSystemLog log)
     {
-        ArgumentNullException.ThrowIfNull(rpcLog);
+        ArgumentNullException.ThrowIfNull(log);
 
-        string details = rpcLog.Exception?.StackTrace ?? string.Empty;
+        string details = log.Details;
         if (details.Length > MaximumDetailsLength)
         {
             details = details[..MaximumDetailsLength];
@@ -35,19 +39,19 @@ internal sealed class WorkerSystemLogFormatter
 
         string[] fields =
         [
-            MapLevel(rpcLog.Level).ToString(CultureInfo.InvariantCulture),
+            MapLevel(log.Level).ToString(CultureInfo.InvariantCulture),
             string.Empty,
             string.Empty,
             string.Empty,
-            SanitizeUnquoted(rpcLog.EventId),
+            SanitizeUnquoted(log.EventId),
             Source,
             Quote(details),
-            Quote(rpcLog.Message),
+            Quote(log.Message),
             string.Empty,
-            receiptTimestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
-            SanitizeUnquoted(rpcLog.Exception?.Type),
-            Quote(rpcLog.Exception?.Message),
-            SanitizeUnquoted(rpcLog.InvocationId),
+            log.Timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            SanitizeUnquoted(log.ExceptionType),
+            Quote(log.ExceptionMessage),
+            SanitizeUnquoted(log.InvocationId),
             string.Empty,
             string.Empty,
             string.Empty,

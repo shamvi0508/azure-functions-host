@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Functions.WorkerProxy.Logging;
+using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -56,6 +57,43 @@ public class WorkerSystemLogWriterTests
 
         Assert.Equal(1, output.MaximumConcurrency);
         Assert.Equal(32, output.Lines.Count);
+    }
+
+    [Fact]
+    public async Task BackgroundWriter_ConcurrentConsoleAndRpcRecordsNeverInterleave()
+    {
+        ConcurrencyTrackingWriter output = new();
+        using WorkerSystemLogWriter writer = CreateWriter(output, capacity: 32);
+        WorkerSystemLogSink sink = new(TimeProvider.System, new WorkerSystemLogFormatter(), writer);
+        await writer.StartAsync(CancellationToken.None);
+
+        Parallel.Invoke(
+            () => Assert.Equal(
+                WorkerSystemLogEnqueueResult.Accepted,
+                sink.TryEmit(new RpcLog
+                {
+                    Level = RpcLog.Types.Level.Warning,
+                    Message = "rpc-record"
+                })),
+            () => Assert.Equal(
+                WorkerSystemLogEnqueueResult.Accepted,
+                sink.TryEmit(new WorkerSystemLog(
+                    RpcLog.Types.Level.Information,
+                    string.Empty,
+                    "console-record",
+                    DateTimeOffset.UnixEpoch,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty))));
+
+        await writer.StopAsync(CancellationToken.None);
+
+        Assert.Equal(1, output.MaximumConcurrency);
+        Assert.Equal(2, output.Lines.Count);
+        Assert.All(
+            output.Lines,
+            line => Assert.StartsWith(WorkerSystemLogFormatter.Prefix, line, StringComparison.Ordinal));
     }
 
     [Fact]

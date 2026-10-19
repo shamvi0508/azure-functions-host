@@ -48,4 +48,29 @@ public class WorkerSystemLogSinkTests
 
         Assert.Equal(expected, result);
     }
+
+    [Fact]
+    public void TryEmit_NormalizedConsoleLogUsesCriTimestampAndFunctionsContract()
+    {
+        Mock<IWorkerSystemLogWriter> writer = new();
+        writer.Setup(instance => instance.TryEnqueue(It.IsAny<string>()))
+            .Returns(WorkerSystemLogEnqueueResult.Accepted);
+        WorkerSystemLogSink sink = new(TimeProvider.System, new WorkerSystemLogFormatter(), writer.Object);
+        WorkerSystemLog systemLog = new(
+            RpcLog.Types.Level.Error,
+            string.Empty,
+            "console  failure",
+            new DateTimeOffset(2026, 10, 6, 10, 5, 17, TimeSpan.Zero),
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty);
+
+        WorkerSystemLogEnqueueResult result = sink.TryEmit(systemLog);
+
+        Assert.Equal(WorkerSystemLogEnqueueResult.Accepted, result);
+        writer.Verify(instance => instance.TryEnqueue(
+            "MS_FUNCTIONS_WORKER_POD_LOGS 2,,,,,Worker.LanguageWorker,\"\",\"console  failure\",," +
+            "2026-10-06T10:05:17.0000000Z,,\"\",,,,,,,,,"), Times.Once());
+    }
 }

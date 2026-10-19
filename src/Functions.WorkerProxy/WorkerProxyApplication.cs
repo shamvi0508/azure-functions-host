@@ -45,6 +45,10 @@ internal static class WorkerProxyApplication
         builder.WebHost.UseSetting(WebHostDefaults.PreferHostingUrlsKey, bool.FalseString);
         builder.Services.AddOptions<WorkerProxyOptions>().BindConfiguration(WorkerProxyOptions.SectionName).ValidateOnStart();
         builder.Services.AddSingleton<IValidateOptions<WorkerProxyOptions>, WorkerProxyOptionsValidator>();
+        builder.Services
+            .AddOptions<WorkerConsoleLogOptions>()
+            .BindConfiguration(WorkerConsoleLogOptions.SectionName);
+        builder.Services.AddSingleton<WorkerConsoleLogParser>();
         builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
         builder.Services.AddSingleton<WorkerPodStateManager>();
         builder.Services.ConfigureHttpJsonOptions(options =>
@@ -64,6 +68,7 @@ internal static class WorkerProxyApplication
         builder.Services.AddSingleton<IHostedService>(
             static services => services.GetRequiredService<WorkerSystemLogWriter>());
         builder.Services.AddSingleton<IWorkerSystemLogSink, WorkerSystemLogSink>();
+        builder.Services.AddHostedService<WorkerConsoleLogReader>();
         builder.Services.AddSingleton<FunctionRpcRelay>();
         builder.Services.AddHostedService(static services => services.GetRequiredService<FunctionRpcRelay>());
         ConfigureHttpForwarding(builder);
