@@ -41,7 +41,9 @@ public class WorkerProxyApplicationTests
         WorkerSystemLogFormatter formatter = factory.Services.GetRequiredService<WorkerSystemLogFormatter>();
         IWorkerSystemLogWriter writer = factory.Services.GetRequiredService<IWorkerSystemLogWriter>();
         WorkerSystemLogWriter concreteWriter = factory.Services.GetRequiredService<WorkerSystemLogWriter>();
-        WorkerSystemLogWriter hostedWriter = factory.Services.GetServices<IHostedService>().OfType<WorkerSystemLogWriter>().Single();
+        IHostedService[] hostedServices = factory.Services.GetServices<IHostedService>().ToArray();
+        WorkerSystemLogWriter hostedWriter = hostedServices.OfType<WorkerSystemLogWriter>().Single();
+        WorkerConsoleLogReader consoleReader = hostedServices.OfType<WorkerConsoleLogReader>().Single();
         IWorkerSystemLogSink sink = factory.Services.GetRequiredService<IWorkerSystemLogSink>();
         using IServiceScope scope = factory.Services.CreateScope();
 
@@ -50,6 +52,7 @@ public class WorkerProxyApplicationTests
         Assert.Same(concreteWriter, writer);
         Assert.Same(concreteWriter, hostedWriter);
         Assert.Same(sink, scope.ServiceProvider.GetRequiredService<IWorkerSystemLogSink>());
+        Assert.True(Array.IndexOf(hostedServices, hostedWriter) < Array.IndexOf(hostedServices, consoleReader));
     }
 
     [Fact]

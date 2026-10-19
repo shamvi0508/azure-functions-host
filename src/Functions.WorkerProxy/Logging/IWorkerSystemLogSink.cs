@@ -16,4 +16,11 @@ internal interface IWorkerSystemLogSink
     /// <param name="rpcLog">The worker log to emit.</param>
     /// <returns>The queue admission result.</returns>
     WorkerSystemLogEnqueueResult TryEmit(RpcLog rpcLog);
+
+    /// <summary>
+    /// Attempts to format and enqueue a normalized worker system log.
+    /// </summary>
+    /// <param name="systemLog">The normalized worker log to emit.</param>
+    /// <returns>The queue admission result.</returns>
+    WorkerSystemLogEnqueueResult TryEmit(WorkerSystemLog systemLog);
 }

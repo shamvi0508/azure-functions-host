@@ -24,7 +24,15 @@ internal sealed class WorkerSystemLogSink(
     {
         ArgumentNullException.ThrowIfNull(rpcLog);
 
-        string record = _formatter.Format(rpcLog, _timeProvider.GetUtcNow());
+        return TryEmit(WorkerSystemLog.FromRpcLog(rpcLog, _timeProvider.GetUtcNow()));
+    }
+
+    /// <inheritdoc />
+    public WorkerSystemLogEnqueueResult TryEmit(WorkerSystemLog systemLog)
+    {
+        ArgumentNullException.ThrowIfNull(systemLog);
+
+        string record = _formatter.Format(systemLog);
 
         return _writer.TryEnqueue(record);
     }

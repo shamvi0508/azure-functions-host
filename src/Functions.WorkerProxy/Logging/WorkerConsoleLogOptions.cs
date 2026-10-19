@@ -10,4 +10,7 @@ internal sealed class WorkerConsoleLogOptions
     public bool Enabled { get; set; }
 
     public string Directory { get; set; } = "/azure-functions/worker-logs";
+
+    public string CheckpointDirectory { get; set; } =
+        "/tmp/azure-functions-worker-proxy/worker-console-log-checkpoints";
 }

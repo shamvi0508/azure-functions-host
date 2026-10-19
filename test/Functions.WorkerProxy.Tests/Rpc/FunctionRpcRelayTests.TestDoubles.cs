@@ -19,6 +19,11 @@ public partial class FunctionRpcRelayTests
         {
             return WorkerSystemLogEnqueueResult.Accepted;
         }
+
+        public WorkerSystemLogEnqueueResult TryEmit(WorkerSystemLog systemLog)
+        {
+            return WorkerSystemLogEnqueueResult.Accepted;
+        }
     }
 
     private sealed class GatedFaultingStreamReader : IAsyncStreamReader<StreamingMessage>
