@@ -17,6 +17,7 @@ using Microsoft.Azure.WebJobs.Script.Eventing;
 using Microsoft.Azure.WebJobs.Script.Grpc;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
 using Microsoft.Azure.WebJobs.Script.Http;
+using Microsoft.Azure.WebJobs.Script.Metrics;
 using Microsoft.Azure.WebJobs.Script.Workers;
 using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
@@ -33,6 +34,25 @@ namespace Azure.Functions.Rpc.Client.Tests;
 public sealed partial class WorkerChannelRegistryTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
+
+    [Fact]
+    public async Task LinkAndUnlink_TrackWorkerLifetimeExactlyOnce()
+    {
+        RegistryHarness harness = new();
+        ChannelControl channel = new("worker");
+        harness.Enqueue(channel);
+        await using WorkerChannelRegistry registry = harness.Registry;
+
+        await LinkAsync(registry, "worker");
+        await LinkAsync(registry, "worker");
+        Assert.True(await registry.UnlinkAsync("worker"));
+        Assert.False(await registry.UnlinkAsync("worker"));
+        await registry.DisposeAsync();
+
+        harness.InvocationTracker.Verify(tracker => tracker.WorkerLinked("worker"), Times.Once);
+        harness.InvocationTracker.Verify(tracker => tracker.WorkerUnlinked("worker"), Times.Once);
+        harness.InvocationTracker.VerifyNoOtherCalls();
+    }
 
     [Fact]
     public async Task LinkAsync_PassesConnectedTransportToChannelFactory()
@@ -1002,9 +1022,11 @@ public sealed partial class WorkerChannelRegistryTests
                     return channel;
                 });
             Registry = linkTimeout.HasValue
-                ? new(DuplexFactory.Object, ChannelFactory.Object, NullLogger<WorkerChannelRegistry>.Instance, linkTimeout.Value)
-                : new(DuplexFactory.Object, ChannelFactory.Object, NullLogger<WorkerChannelRegistry>.Instance);
+                ? new(DuplexFactory.Object, ChannelFactory.Object, NullLogger<WorkerChannelRegistry>.Instance, linkTimeout.Value, InvocationTracker.Object)
+                : new(DuplexFactory.Object, ChannelFactory.Object, NullLogger<WorkerChannelRegistry>.Instance, InvocationTracker.Object);
         }
+
+        internal Mock<IWorkerInvocationTracker> InvocationTracker { get; } = new();
 
         internal Mock<IRpcClientWorkerChannelFactory> ChannelFactory { get; } = new();
 

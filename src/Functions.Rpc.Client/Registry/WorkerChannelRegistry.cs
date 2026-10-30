@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Script.Diagnostics;
 using Microsoft.Azure.WebJobs.Script.Grpc;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
+using Microsoft.Azure.WebJobs.Script.Metrics;
 using Microsoft.Extensions.Logging;
 
 namespace Azure.Functions.Rpc.Client;
@@ -27,6 +28,7 @@ internal sealed partial class WorkerChannelRegistry : IWorkerChannelRegistry
     private static readonly TimeSpan DefaultLinkTimeout = TimeSpan.FromSeconds(30);
 
     private readonly IRpcClientWorkerChannelFactory _channelFactory;
+    private readonly IWorkerInvocationTracker _invocationTracker;
     private readonly Lock _disposeLock = new();
     private readonly IDuplexChannelFactory<StreamingMessage> _duplexChannelFactory;
     private readonly ILogger<WorkerChannelRegistry> _logger;
@@ -43,8 +45,9 @@ internal sealed partial class WorkerChannelRegistry : IWorkerChannelRegistry
     public WorkerChannelRegistry(
         IDuplexChannelFactory<StreamingMessage> duplexChannelFactory,
         IRpcClientWorkerChannelFactory channelFactory,
-        ILogger<WorkerChannelRegistry> logger)
-        : this(duplexChannelFactory, channelFactory, logger, DefaultLinkTimeout)
+        ILogger<WorkerChannelRegistry> logger,
+        IWorkerInvocationTracker invocationTracker = null)
+        : this(duplexChannelFactory, channelFactory, logger, DefaultLinkTimeout, invocationTracker)
     {
     }
 
@@ -52,11 +55,13 @@ internal sealed partial class WorkerChannelRegistry : IWorkerChannelRegistry
         IDuplexChannelFactory<StreamingMessage> duplexChannelFactory,
         IRpcClientWorkerChannelFactory channelFactory,
         ILogger<WorkerChannelRegistry> logger,
-        TimeSpan linkTimeout)
+        TimeSpan linkTimeout,
+        IWorkerInvocationTracker invocationTracker = null)
     {
         _duplexChannelFactory = duplexChannelFactory ?? throw new ArgumentNullException(nameof(duplexChannelFactory));
         _channelFactory = channelFactory ?? throw new ArgumentNullException(nameof(channelFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _invocationTracker = invocationTracker;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(linkTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(linkTimeout.TotalMilliseconds, uint.MaxValue - 1);
         _linkTimeout = linkTimeout;
@@ -365,6 +370,7 @@ internal sealed partial class WorkerChannelRegistry : IWorkerChannelRegistry
         }
 
         slot.Channel = null;
+        _invocationTracker?.WorkerUnlinked(channel.Id);
         if (slot.LinkTask is not null)
         {
             slot.Terminal = true;
@@ -479,6 +485,7 @@ internal sealed partial class WorkerChannelRegistry : IWorkerChannelRegistry
         lock (_stateLock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            _invocationTracker?.WorkerLinked(workerId);
             slot.Channel = channel;
             monitorTask = MonitorChannelCompletionAsync(workerId, slot, channel);
             _monitorTasks.Add(monitorTask);

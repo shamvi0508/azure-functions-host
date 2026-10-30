@@ -14,6 +14,7 @@ using Microsoft.Azure.WebJobs.Script.Config;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.Grpc;
 using Microsoft.Azure.WebJobs.Script.ManagedDependencies;
+using Microsoft.Azure.WebJobs.Script.Metrics;
 using Microsoft.Azure.WebJobs.Script.Workers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -32,6 +33,7 @@ internal sealed partial class RpcClientFunctionInvocationDispatcher : IRpcClient
     private static readonly TimeSpan DefaultShutdownTimeout = TimeSpan.FromSeconds(10);
 
     private readonly IWorkerChannelRegistry _channelRegistry;
+    private readonly IWorkerInvocationTracker _invocationTracker;
     private readonly CancellationTokenSource _dispatcherStoppedSource = new();
     private readonly ILogger<RpcClientFunctionInvocationDispatcher> _logger;
     private readonly ManagedDependencyOptions _managedDependencyOptions;
@@ -46,8 +48,9 @@ internal sealed partial class RpcClientFunctionInvocationDispatcher : IRpcClient
         IWorkerChannelRegistry channelRegistry,
         IOptions<ScriptJobHostOptions> scriptHostOptions,
         IOptions<ManagedDependencyOptions> managedDependencyOptions,
-        ILogger<RpcClientFunctionInvocationDispatcher> logger)
-        : this(channelRegistry, scriptHostOptions, managedDependencyOptions, logger, DefaultChannelWaitTimeout)
+        ILogger<RpcClientFunctionInvocationDispatcher> logger,
+        IWorkerInvocationTracker invocationTracker = null)
+        : this(channelRegistry, scriptHostOptions, managedDependencyOptions, logger, DefaultChannelWaitTimeout, invocationTracker)
     {
     }
 
@@ -56,12 +59,14 @@ internal sealed partial class RpcClientFunctionInvocationDispatcher : IRpcClient
         IOptions<ScriptJobHostOptions> scriptHostOptions,
         IOptions<ManagedDependencyOptions> managedDependencyOptions,
         ILogger<RpcClientFunctionInvocationDispatcher> logger,
-        TimeSpan channelWaitTimeout)
+        TimeSpan channelWaitTimeout,
+        IWorkerInvocationTracker invocationTracker = null)
     {
         _channelRegistry = channelRegistry ?? throw new ArgumentNullException(nameof(channelRegistry));
         _scriptHostOptions = scriptHostOptions?.Value ?? throw new ArgumentNullException(nameof(scriptHostOptions));
         _managedDependencyOptions = managedDependencyOptions?.Value ?? throw new ArgumentNullException(nameof(managedDependencyOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _invocationTracker = invocationTracker;
 
         if (channelWaitTimeout <= TimeSpan.Zero)
         {
@@ -122,7 +127,17 @@ internal sealed partial class RpcClientFunctionInvocationDispatcher : IRpcClient
                 Log.PostingInvocation(_logger, invocationContext.ExecutionContext.InvocationId, channel.Id);
             }
 
-            inputBuffer.Post(invocationContext);
+            string invocationId = invocationContext.ExecutionContext.InvocationId.ToString();
+            bool accepted = _invocationTracker is null
+                ? inputBuffer.Post(invocationContext)
+                : _invocationTracker.TryDispatchInvocation(invocationId, channel.Id, invocationContext.CancellationToken,
+                    () => inputBuffer.Post(invocationContext));
+            if (!accepted)
+            {
+                invocationContext.CancellationToken.ThrowIfCancellationRequested();
+                throw new InvalidOperationException($"Worker '{channel.Id}' rejected invocation '{invocationId}' or is no longer available for attribution.");
+            }
+
             return Task.CompletedTask;
         }
 

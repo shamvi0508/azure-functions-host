@@ -6,6 +6,7 @@ using System.Linq;
 using Azure.Functions.Rpc.Client;
 using Microsoft.Azure.WebJobs.Script;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
+using Microsoft.Azure.WebJobs.Script.Metrics;
 using Microsoft.Azure.WebJobs.Script.Workers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -91,6 +92,11 @@ public static class RpcClientServiceCollectionExtensions
         // fork the metadata cache used by the root metadata manager.
         services.AddSingleton(channelRegistry);
         services.AddSingleton(metadataProvider);
+        if (rootServiceProvider.GetService<IWorkerInvocationTracker>() is { } invocationTracker)
+        {
+            services.AddSingleton(invocationTracker);
+        }
+
         services.AddSingleton<IRpcClientFunctionInvocationDispatcher, RpcClientFunctionInvocationDispatcher>();
         services.AddSingleton<IFunctionInvocationDispatcherFactory, RpcClientFunctionInvocationDispatcherFactory>();
         services.AddSingleton<IScriptHostWorkerManager, RpcClientScriptHostWorkerManager>();
