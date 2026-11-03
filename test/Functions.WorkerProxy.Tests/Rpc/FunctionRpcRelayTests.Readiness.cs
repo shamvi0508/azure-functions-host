@@ -114,6 +114,7 @@ public partial class FunctionRpcRelayTests
         Assert.Null(manager.State.WorkerId);
         Assert.Equal(WorkerAssignmentState.Unassigned, manager.State.AssignmentState);
         Assert.Equal(2, manager.State.Revision);
+        Assert.False(manager.State.RemovalRequested);
     }
 
     [Fact]
@@ -133,6 +134,7 @@ public partial class FunctionRpcRelayTests
 
         Assert.Equal(FunctionRpcRelayAttachmentFailure.Duplicate, exception.Failure);
         Assert.Same(ready, manager.State);
+        Assert.False(manager.State.RemovalRequested);
         await relay.StopAsync(timeout.Token);
         await workerTask.WaitAsync(timeout.Token);
     }
@@ -202,9 +204,7 @@ public partial class FunctionRpcRelayTests
             Assert.False(failed.IsWorkerReady);
             Assert.False(failed.IsWorkerAttached);
             Assert.Equal(WorkerPodStatus.None, failed.PodStatus);
-            bool removalExpected = string.Equals(trigger, "runtime-close", StringComparison.Ordinal) ||
-                string.Equals(trigger, "runtime-cancel", StringComparison.Ordinal) ||
-                string.Equals(trigger, "runtime-fault", StringComparison.Ordinal);
+            bool removalExpected = !string.Equals(trigger, "shutdown", StringComparison.Ordinal);
             Assert.Equal(removalExpected, failed.RemovalRequested);
             Assert.Equal(removalExpected ? WorkerAssignmentState.Unassigned : WorkerAssignmentState.Failed, failed.AssignmentState);
             Assert.Equal(assigned.Revision + 1, failed.Revision);
@@ -225,8 +225,10 @@ public partial class FunctionRpcRelayTests
         Assert.Equal(4, manager.State.Revision);
     }
 
-    [Fact]
-    public async Task Relay_UnassignedSessionCanBeReplacedAfterTermination()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Relay_WorkerTerminationRequestsRemovalBeforeOrAfterAssignment(bool assigned)
     {
         await using WorkerProxyWebApplicationFactory factory = CreateFactory();
         FunctionRpcRelay relay = factory.Services.GetRequiredService<FunctionRpcRelay>();
@@ -237,21 +239,30 @@ public partial class FunctionRpcRelayTests
         await using RelayClient worker = CreateClient(factory, FunctionRpcRelaySide.Worker, timeout.Token);
         await ExchangeAsync(runtime, worker, "original", timeout.Token);
         Assert.True(manager.State.IsWorkerReady);
+        if (assigned)
+        {
+            Assert.Equal(WorkerAssignmentResult.Created, manager.Assign(assignment));
+        }
 
         await worker.CompleteRequestAsync(timeout.Token);
         await Task.WhenAll(runtime.WaitForTerminationAsync(timeout.Token), worker.WaitForTerminationAsync(timeout.Token));
         await WaitForReleaseAsync(relay, timeout.Token);
         WorkerPodState terminated = manager.State;
         Assert.False(terminated.IsWorkerReady);
+        Assert.True(terminated.RemovalRequested);
+        Assert.Null(terminated.SessionId);
+        Assert.Null(terminated.WorkerId);
+        Assert.Null(terminated.FunctionGroupName);
+        Assert.Equal(WorkerAssignmentState.Unassigned, terminated.AssignmentState);
+        Assert.Equal(WorkerAssignmentResult.WorkerNotReady, manager.Assign(assignment));
 
         await using RelayClient replacementRuntime = CreateClient(factory, FunctionRpcRelaySide.Runtime, timeout.Token);
         await using RelayClient replacementWorker = CreateClient(factory, FunctionRpcRelaySide.Worker, timeout.Token);
-        await ExchangeAsync(replacementRuntime, replacementWorker, "replacement", timeout.Token);
-
-        Assert.True(manager.State.IsWorkerReady);
-        Assert.True(manager.State.SessionId > terminated.SessionId);
-        Assert.Equal(terminated.Revision + 2, manager.State.Revision);
-        Assert.Equal(WorkerAssignmentResult.Created, manager.Assign(assignment));
+        Assert.Equal(StatusCode.Unavailable,
+            (await replacementRuntime.WriteAndReadRejectionAsync(CreateMessage("replacement"), timeout.Token)).StatusCode);
+        Assert.Equal(StatusCode.Unavailable,
+            (await replacementWorker.WriteAndReadRejectionAsync(CreateStartStream("replacement"), timeout.Token)).StatusCode);
+        Assert.Same(terminated, manager.State);
     }
 
     [Fact]
@@ -332,6 +343,7 @@ public partial class FunctionRpcRelayTests
             oldReader.VerifyGet(reader => reader.Current, Times.Once);
             Assert.Same(ready, manager.State);
             Assert.Equal("test-worker", manager.State.WorkerId);
+            Assert.False(manager.State.RemovalRequested);
 
             await relay.StopAsync(timeout.Token);
             await replacement.WaitAsync(timeout.Token);

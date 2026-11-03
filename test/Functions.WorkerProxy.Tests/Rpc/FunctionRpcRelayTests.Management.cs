@@ -180,24 +180,24 @@ public partial class FunctionRpcRelayTests
                 Assert.Equal(manager.State.Revision, state.RootElement.GetProperty("revisionId").GetInt64());
                 JsonElement pod = state.RootElement.GetProperty("workerPodState");
                 Assert.Equal("None", pod.GetProperty("podStatus").GetString());
-                Assert.Equal(startupMode, pod.GetProperty("startupMode").GetString());
-                Assert.Equal("test-group", pod.GetProperty("functionGroupName").GetString());
-                Assert.False(pod.GetProperty("isAlwaysReady").GetBoolean());
+                Assert.False(pod.TryGetProperty("startupMode", out _));
+                Assert.False(pod.TryGetProperty("functionGroupName", out _));
+                Assert.False(pod.TryGetProperty("isAlwaysReady", out _));
             }
 
             SplitWorkerOriginState terminated = await ReadSplitManagementStateAsync(management, timeout.Token);
-            Assert.Equal(SplitWorkerStatus.Starting, terminated.Status);
-            Assert.Equal(SplitWorkerLinkState.Unlinked, terminated.Link.State);
-            Assert.Null(terminated.Link.Runtime);
+            Assert.Equal(SplitWorkerStatus.RemovalRequested, terminated.Status);
+            Assert.Equal(running.RevisionId + 1, terminated.RevisionId);
+            Assert.Equal(running.Link, terminated.Link);
             Assert.True(terminated.IsUnhealthy);
             await AssertReadinessAsync(management, "/admin/worker/ready", HttpStatusCode.ServiceUnavailable, timeout.Token);
             await AssertReadinessAsync(management, "/admin/instance/ready", HttpStatusCode.OK, timeout.Token);
             using HttpResponseMessage terminalReplay = await PutManagementJsonAsync(
                 management, "/admin/worker/assignment", assignmentBody, timeout.Token);
-            await AssertManagementErrorAsync(terminalReplay, HttpStatusCode.Conflict, "WorkerTerminated", timeout.Token);
+            await AssertManagementErrorAsync(terminalReplay, HttpStatusCode.ServiceUnavailable, "WorkerNotReady", timeout.Token);
             using HttpResponseMessage terminalConflict = await PutManagementJsonAsync(
                 management, "/admin/worker/assignment", conflictingBody, timeout.Token);
-            await AssertManagementErrorAsync(terminalConflict, HttpStatusCode.Conflict, "AssignmentConflict", timeout.Token);
+            await AssertManagementErrorAsync(terminalConflict, HttpStatusCode.ServiceUnavailable, "WorkerNotReady", timeout.Token);
             using JsonDocument current = await ReadManagementStateAsync(management, readyRevision, timeout.Token);
             Assert.Equal(manager.State.Revision, current.RootElement.GetProperty("revisionId").GetInt64());
         }
@@ -427,7 +427,7 @@ public partial class FunctionRpcRelayTests
     }
 
     [Fact]
-    public async Task SplitInstanceState_RuntimeAttachAndWorkerTermination_KeepsDeferredLinkDefaults()
+    public async Task SplitInstanceState_WorkerTerminationBeforeInitialization_RemovesWithUnlinkedCheckpoint()
     {
         await using WorkerProxyWebApplicationFactory factory = CreateFactory();
         FunctionRpcRelay relay = factory.Services.GetRequiredService<FunctionRpcRelay>();
@@ -464,10 +464,10 @@ public partial class FunctionRpcRelayTests
         SplitWorkerOriginState terminated = await ReadSplitManagementStateAsync(terminatedResponse, timeout.Token);
         Assert.Equal(assigned.Self, terminated.Self);
         Assert.Equal(assigned.IsAlwaysReady, terminated.IsAlwaysReady);
-        Assert.Equal(assigned.FunctionGroup, terminated.FunctionGroup);
+        Assert.Null(terminated.FunctionGroup);
         Assert.Equal(assigned.StartupTime, terminated.StartupTime);
         Assert.Equal(assigned.RevisionId + 1, terminated.RevisionId);
-        Assert.Equal(SplitWorkerStatus.Starting, terminated.Status);
+        Assert.Equal(SplitWorkerStatus.RemovalRequested, terminated.Status);
         Assert.Equal(new SplitWorkerLink(SplitWorkerLinkState.Unlinked), terminated.Link);
         Assert.True(terminated.IsUnhealthy);
     }

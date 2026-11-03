@@ -1,10 +1,12 @@
-# Runtime link-loss cleanup
+# Runtime and Worker disconnect cleanup
 
-WorkerProxy requests removal when an admitted Runtime-facing FunctionRpc stream ends unexpectedly
+WorkerProxy requests removal when an admitted Runtime-facing or customer Worker-facing FunctionRpc stream ends unexpectedly
 through EOF, cancellation, read failure, or write failure, including before Worker initialization.
+Worker admission requires a validated first StartStream with a nonempty worker ID accepted by the state manager.
+An admitted Worker disconnect requests removal both before and after assignment.
 The existing relay completion path publishes one sticky removal decision; no monitor or startup timeout is added.
-Duplicate and rejected Runtime streams do not select removal. Worker-side termination retains its
-existing behavior, and application-owned shutdown is excluded.
+Duplicate or rejected streams, Worker failures before accepted StartStream, stale handlers, and
+application-owned shutdown do not select removal. Pre-StartStream failures retain existing replacement rules.
 
 Removal clears live worker and assignment state, withdraws readiness, rejects new Runtime and Worker
 streams, and returns HTTP 503 for new HTTP forwarding requests, including those completing readiness waits.
