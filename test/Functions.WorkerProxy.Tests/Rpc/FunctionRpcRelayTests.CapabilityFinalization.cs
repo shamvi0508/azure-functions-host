@@ -152,8 +152,9 @@ public partial class FunctionRpcRelayTests
         await WaitForReleaseAsync(relay, timeout.Token);
         WorkerPodState failed = Assert.IsType<WorkerPodState>((await poll).State);
         Assert.False(failed.IsWorkerReady);
-        Assert.Equal(WorkerAssignmentState.Failed, failed.AssignmentState);
-        Assert.Equal(WorkerAssignmentResult.WorkerTerminated, manager.Assign(assignment));
+        Assert.True(failed.RemovalRequested);
+        Assert.Equal(WorkerAssignmentState.Unassigned, failed.AssignmentState);
+        Assert.Equal(WorkerAssignmentResult.WorkerNotReady, manager.Assign(assignment));
         Assert.Null(relay.WorkerHttpDestination);
         Assert.Equal(FunctionRpcRelayTerminationReason.Faulted, relay.LastTerminalState?.Reason);
         Assert.Same(failure, relay.LastTerminalState?.Exception);
